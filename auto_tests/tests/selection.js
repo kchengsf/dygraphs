@@ -27,6 +27,9 @@ SelectionTestCase.prototype.testSetGetSelection = function() {
   assertEquals(1, g.getSelection());
   g.setSelection(2);
   assertEquals(2, g.getSelection());
+
+  g.setSelection(false, ['X','Y']);
+  assertEquals(g.getHighlightSeries(),['X','Y']);
 };
 
 SelectionTestCase.prototype.testSetGetSelectionDense = function() {
