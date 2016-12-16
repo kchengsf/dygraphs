@@ -1646,6 +1646,7 @@ DygraphCanvasRenderer._errorPlotter = function(e) {
 DygraphCanvasRenderer._fastCanvasProxy = function(context) {
   var pendingActions = [];  // array of [type, x, y] tuples
   var lastRoundedX = null;
+  var lastFlushedX = null;
 
   var LINE_TO = 1,
       MOVE_TO = 2;
@@ -1724,6 +1725,9 @@ DygraphCanvasRenderer._fastCanvasProxy = function(context) {
         context.moveTo(action[1], action[2]);
       }
     }
+    if (pendingActions.length) {
+      lastFlushedX = pendingActions[pendingActions.length - 1][1];
+    }
     actionCount += pendingActions.length;
     pendingActions = [];
   };
@@ -1731,7 +1735,12 @@ DygraphCanvasRenderer._fastCanvasProxy = function(context) {
   var addAction = function(action, x, y) {
     var rx = Math.round(x);
     if (lastRoundedX === null || rx != lastRoundedX) {
-      flushActions();
+      // if there are large gaps on the x-axis, it's essential to keep the
+      // first and last point as well.
+      var hasGapOnLeft = (lastRoundedX - lastFlushedX > 1),
+          hasGapOnRight = (rx - lastRoundedX > 1),
+          hasGap = hasGapOnLeft || hasGapOnRight;
+      flushActions(hasGap);
       lastRoundedX = rx;
     }
     pendingActions.push([action, x, y]);
@@ -1855,7 +1864,7 @@ DygraphCanvasRenderer._fillPlotter = function(e) {
 
     // If the point density is high enough, dropping segments on their way to
     // the canvas justifies the overhead of doing so.
-    if (points.length > 2 * g.width_) {
+    if (points.length > 2 * g.width_ || Dygraph.FORCE_FAST_PROXY) {
       ctx = DygraphCanvasRenderer._fastCanvasProxy(ctx);
     }
 
@@ -2150,7 +2159,7 @@ Dygraph.numberValueFormatter = function(x, opts) {
  * @private
  */
 Dygraph.numberAxisLabelFormatter = function(x, granularity, opts) {
-  return Dygraph.numberValueFormatter(x, opts);
+  return Dygraph.numberValueFormatter.call(this, x, opts);
 };
 
 /**
@@ -4034,6 +4043,7 @@ Dygraph.prototype.animateSelection_ = function(direction) {
 Dygraph.prototype.updateSelection_ = function(opt_animFraction) {
   /*var defaultPrevented = */
   this.cascadeEvents_('select', {
+    selectedRow: this.lastRow_,
     selectedX: this.lastx_,
     selectedPoints: this.selPoints_
   });
@@ -4114,8 +4124,8 @@ Dygraph.prototype.updateSelection_ = function(opt_animFraction) {
  * using getSelection().
  * @param {number} row Row number that should be highlighted (i.e. appear with
  * hover dots on the chart).
- * @param {seriesName} optional series name to highlight that series with the
- * the highlightSeriesOpts setting.
+ * @param {seriesName} optional series name(string, or array of strings) to
+ * highlight with the the highlightSeriesOpts setting.
  * @param { locked } optional If true, keep seriesName selected when mousing
  * over the graph, disabling closest-series highlighting. Call clearSelection()
  * to unlock it.
@@ -4161,7 +4171,9 @@ Dygraph.prototype.setSelection = function(row, opt_seriesName, opt_locked) {
   }
 
   if (opt_seriesName !== undefined) {
-    if (this.highlightSet_ !== opt_seriesName) changed = true;
+    var stringifiedNew = Dygraph.isArrayLike(opt_seriesName)?opt_seriesName.join():opt_seriesName;
+    var stringifiedOld = Dygraph.isArrayLike(this.highlightSet_)?this.highlightSet_.join():this.highlightSet_;
+    if (stringifiedOld !== stringifiedNew) changed = true;
     this.highlightSet_ = opt_seriesName;
   }
 
@@ -4685,7 +4697,7 @@ Dygraph.prototype.renderGraph_ = function(is_initial_draw) {
   this.canvas_.getContext('2d').clearRect(0, 0, this.width_, this.height_);
 
   if (this.getFunctionOption("drawCallback") !== null) {
-    this.getFunctionOption("drawCallback")(this, is_initial_draw);
+    this.getFunctionOption("drawCallback").call(this, this, is_initial_draw);
   }
   if (is_initial_draw) {
     this.readyFired_ = true;
@@ -5759,6 +5771,10 @@ Dygraph.addAnnotationRule = function() {
 
   console.warn("Unable to add default annotation CSS rule; display may be off.");
 };
+
+if (typeof exports === "object" && typeof module !== "undefined") {
+  module.exports = Dygraph;
+}
 
 return Dygraph;
 
@@ -6900,15 +6916,41 @@ Dygraph.pow = function(base, exp) {
   return Math.pow(base, exp);
 };
 
+var RGBA_RE = /^rgba?\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})(?:,\s*([01](?:\.\d+)?))?\)$/;
+
+/**
+ * Helper for Dygraph.toRGB_ which parses strings of the form:
+ * rgb(123, 45, 67)
+ * rgba(123, 45, 67, 0.5)
+ * @return parsed {r,g,b,a?} tuple or null.
+ */
+function parseRGBA(rgbStr) {
+  var bits = RGBA_RE.exec(rgbStr);
+  if (!bits) return null;
+  var r = parseInt(bits[1], 10),
+      g = parseInt(bits[2], 10),
+      b = parseInt(bits[3], 10);
+  if (bits[4]) {
+    return {r: r, g: g, b: b, a: parseFloat(bits[4])};
+  } else {
+    return {r: r, g: g, b: b};
+  }
+}
+
 /**
  * Converts any valid CSS color (hex, rgb(), named color) to an RGB tuple.
  *
  * @param {!string} colorStr Any valid CSS color string.
- * @return {{r:number,g:number,b:number}} Parsed RGB tuple.
+ * @return {{r:number,g:number,b:number,a:number?}} Parsed RGB tuple.
  * @private
  */
 Dygraph.toRGB_ = function(colorStr) {
-  // TODO(danvk): cache color parses to avoid repeated DOM manipulation.
+  // Strategy: First try to parse colorStr directly. This is fast & avoids DOM
+  // manipulation.  If that fails (e.g. for named colors like 'red'), then
+  // create a hidden DOM element and parse its computed color.
+  var rgb = parseRGBA(colorStr);
+  if (rgb) return rgb;
+
   var div = document.createElement('div');
   div.style.backgroundColor = colorStr;
   div.style.visibility = 'hidden';
@@ -6921,12 +6963,7 @@ Dygraph.toRGB_ = function(colorStr) {
     rgbStr = div.currentStyle.backgroundColor;
   }
   document.body.removeChild(div);
-  var bits = /^rgb\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})\)$/.exec(rgbStr);
-  return {
-    r: parseInt(bits[1], 10),
-    g: parseInt(bits[2], 10),
-    b: parseInt(bits[3], 10)
-  };
+  return parseRGBA(rgbStr);
 };
 
 /**
@@ -8024,7 +8061,7 @@ Dygraph.numericTicks = function(a, b, pixels, opts, dygraph, vals) {
   for (i = 0; i < ticks.length; i++) {
     if (ticks[i].label !== undefined) continue;  // Use current label.
     // TODO(danvk): set granularity to something appropriate here.
-    ticks[i].label = formatter(ticks[i].v, 0, opts, dygraph);
+    ticks[i].label = formatter.call(dygraph, ticks[i].v, 0, opts, dygraph);
   }
 
   return ticks;
@@ -8240,7 +8277,7 @@ Dygraph.getDateAxis = function(start_time, end_time, granularity, opts, dg) {
     }
     while (tick_time <= end_time) {
       ticks.push({ v: tick_time,
-                   label: formatter(tick_date, granularity, opts, dg)
+                   label: formatter.call(dg, tick_date, granularity, opts, dg)
                  });
       tick_time += spacing;
       tick_date = new Date(tick_time);
@@ -8255,7 +8292,7 @@ Dygraph.getDateAxis = function(start_time, end_time, granularity, opts, dg) {
       if (granularity >= Dygraph.DAILY ||
           accessors.getHours(tick_date) % step === 0) {
         ticks.push({ v: tick_time,
-                     label: formatter(tick_date, granularity, opts, dg)
+                     label: formatter.call(dg, tick_date, granularity, opts, dg)
                    });
       }
       date_array[datefield] += step;
@@ -9241,6 +9278,7 @@ var escapeHTML = function(str) {
 legend.prototype.select = function(e) {
   var xValue = e.selectedX;
   var points = e.selectedPoints;
+  var row = e.selectedRow;
 
   var legendMode = e.dygraph.getOption('legend');
   if (legendMode === 'never') {
@@ -9271,7 +9309,7 @@ legend.prototype.select = function(e) {
     this.legend_div_.style.top = topLegend + "px";
   }
 
-  var html = legend.generateLegendHTML(e.dygraph, xValue, points, this.one_em_width_);
+  var html = legend.generateLegendHTML(e.dygraph, xValue, points, this.one_em_width_, row);
   this.legend_div_.innerHTML = html;
   this.legend_div_.style.display = '';
 };
@@ -9286,7 +9324,7 @@ legend.prototype.deselect = function(e) {
   var oneEmWidth = calculateEmWidthInDiv(this.legend_div_);
   this.one_em_width_ = oneEmWidth;
 
-  var html = legend.generateLegendHTML(e.dygraph, undefined, undefined, oneEmWidth);
+  var html = legend.generateLegendHTML(e.dygraph, undefined, undefined, oneEmWidth, null);
   this.legend_div_.innerHTML = html;
 };
 
@@ -9329,14 +9367,15 @@ legend.prototype.destroy = function() {
  * Generates HTML for the legend which is displayed when hovering over the
  * chart. If no selected points are specified, a default legend is returned
  * (this may just be the empty string).
- * @param { Number } [x] The x-value of the selected points.
- * @param { [Object] } [sel_points] List of selected points for the given
- * x-value. Should have properties like 'name', 'yval' and 'canvasy'.
- * @param { Number } [oneEmWidth] The pixel width for 1em in the legend. Only
- * relevant when displaying a legend with no selection (i.e. {legend:
- * 'always'}) and with dashed lines.
+ * @param {number} x The x-value of the selected points.
+ * @param {Object} sel_points List of selected points for the given
+ *   x-value. Should have properties like 'name', 'yval' and 'canvasy'.
+ * @param {number} oneEmWidth The pixel width for 1em in the legend. Only
+ *   relevant when displaying a legend with no selection (i.e. {legend:
+ *   'always'}) and with dashed lines.
+ * @param {number} row The selected row index.
  */
-legend.generateLegendHTML = function(g, x, sel_points, oneEmWidth) {
+legend.generateLegendHTML = function(g, x, sel_points, oneEmWidth, row) {
   // TODO(danvk): deprecate this option in place of {legend: 'never'}
   if (g.getOption('showLabelsOnHighlight') !== true) return '';
 
@@ -9369,7 +9408,7 @@ legend.generateLegendHTML = function(g, x, sel_points, oneEmWidth) {
   // TODO(danvk): remove this use of a private API
   var xOptView = g.optionsViewForAxis_('x');
   var xvf = xOptView('valueFormatter');
-  html = xvf(x, xOptView, labels[0], g);
+  html = xvf.call(g, x, xOptView, labels[0], g, row, 0);
   if (html !== '') {
     html += ':';
   }
@@ -9392,7 +9431,7 @@ legend.generateLegendHTML = function(g, x, sel_points, oneEmWidth) {
     var series = g.getPropertiesForSeries(pt.name);
     var yOptView = yOptViews[series.axis - 1];
     var fmtFunc = yOptView('valueFormatter');
-    var yval = fmtFunc(pt.yval, yOptView, pt.name, g);
+    var yval = fmtFunc.call(g, pt.yval, yOptView, pt.name, g, row, labels.indexOf(pt.name));
 
     var cls = (pt.name == highlightSeries) ? " class='highlight'" : "";
 
@@ -10461,7 +10500,7 @@ Dygraph.OPTIONS_REFERENCE =  // <JSON>
       ["x", "the x-coordinate of the highlighted points"],
       ["points", "an array of highlighted points: <code>[ {name: 'series', yval: y-value}, &hellip; ]</code>"],
       ["row", "integer index of the highlighted row in the data table, starting from 0"],
-      ["seriesName", "name of the highlighted series, only present if highlightSeriesOpts is set."]
+      ["seriesName", "name or names of the highlighted series, only present if highlightSeriesOpts is set."]
     ]
   },
   "drawHighlightPointCallback": {
@@ -10534,8 +10573,16 @@ Dygraph.OPTIONS_REFERENCE =  // <JSON>
   "valueFormatter": {
     "default": "Depends on the type of your data.",
     "labels": ["Legend", "Value display/formatting"],
-    "type": "function(num or millis, opts, dygraph)",
-    "description": "Function to provide a custom display format for the values displayed on mouseover. This does not affect the values that appear on tick marks next to the axes. To format those, see axisLabelFormatter. This is usually set on a <a href='per-axis.html'>per-axis</a> basis. For date axes, you can call new Date(millis) to get a Date object. opts is a function you can call to access various options (e.g. opts('labelsKMB'))."
+    "type": "function(num or millis, opts, seriesName, dygraph, row, col)",
+    "description": "Function to provide a custom display format for the values displayed on mouseover. This does not affect the values that appear on tick marks next to the axes. To format those, see axisLabelFormatter. This is usually set on a <a href='per-axis.html'>per-axis</a> basis. .",
+    "parameters": [
+      ["num_or_millis", "The value to be formatted. This is always a number. For date axes, it's millis since epoch. You can call new Date(millis) to get a Date object."],
+      ["opts", "This is a function you can call to access various options (e.g. opts('labelsKMB')). It returns per-axis values for the option when available."],
+      ["seriesName", "The name of the series from which the point came, e.g. 'X', 'Y', 'A', etc."],
+      ["dygraph", "The dygraph object for which the formatting is being done"],
+      ["row", "The row of the data from which this point comes. g.getValue(row, 0) will return the x-value for this point."],
+      ["col", "The column of the data from which this point comes. g.getValue(row, col) will return the original y-value for this point. This can be used to get the full confidence interval for the point, or access un-rolled values for the point."]
+    ]
   },
   "pixelsPerYLabel": {
     "default": "",

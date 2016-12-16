@@ -2105,13 +2105,7 @@ Dygraph.prototype.updateSelection_ = function(opt_animFraction) {
 
     // Redraw only the highlighted series in the interactive canvas (not the
     // static plot canvas, which is where series are usually drawn).
-    if(Dygraph.isArrayLike(this.highlightSet_)) {
-      for( var i = 0; i < this.highlightSet_.length; i++) {
-        this.plotter_._renderLineChart(this.highlightSet_[i], ctx);
-      }
-    } else {
-      this.plotter_._renderLineChart(this.highlightSet_, ctx);
-    }
+    this.plotter_._renderLineChart(this.highlightSet_, ctx);
   } else if (this.previousVerticalX_ >= 0) {
     // Determine the maximum highlight circle size.
     var maxCircleSize = 0;
