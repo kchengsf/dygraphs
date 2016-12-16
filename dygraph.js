@@ -2105,7 +2105,7 @@ Dygraph.prototype.updateSelection_ = function(opt_animFraction) {
 
     // Redraw only the highlighted series in the interactive canvas (not the
     // static plot canvas, which is where series are usually drawn).
-    if(utils.isArrayLike(this.highlightSet_)) {
+    if(Dygraph.isArrayLike(this.highlightSet_)) {
       for( var i = 0; i < this.highlightSet_.length; i++) {
         this.plotter_._renderLineChart(this.highlightSet_[i], ctx);
       }
@@ -2208,8 +2208,8 @@ Dygraph.prototype.setSelection = function(row, opt_seriesName, opt_locked) {
   }
 
   if (opt_seriesName !== undefined) {
-    var stringifiedNew = utils.isArrayLike(opt_seriesName)?opt_seriesName.join():opt_seriesName;
-    var stringifiedOld = utils.isArrayLike(this.highlightSet_)?this.highlightSet_.join():this.highlightSet_;
+    var stringifiedNew = Dygraph.isArrayLike(opt_seriesName)?opt_seriesName.join():opt_seriesName;
+    var stringifiedOld = Dygraph.isArrayLike(this.highlightSet_)?this.highlightSet_.join():this.highlightSet_;
     if (stringifiedOld !== stringifiedNew) changed = true;
     this.highlightSet_ = opt_seriesName;
   }
