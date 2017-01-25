@@ -1984,6 +1984,9 @@ Dygraph.prototype.findStackedPoint = function(domX, domY) {
  * @private
  */
 Dygraph.prototype.mouseMove_ = function(event) {
+  if(this.getBooleanOption("skipMouseMove")) {
+    return;
+  }
   // This prevents JS errors when mousing over the canvas before data loads.
   var points = this.layout_.points;
   if (points === undefined || points === null) return;

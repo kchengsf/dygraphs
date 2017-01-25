@@ -10,6 +10,12 @@
 // most part, this just means that you should always use double quotes.
 Dygraph.OPTIONS_REFERENCE =  // <JSON>
 {
+  "skipMouseMove": {
+    "default": "false",
+    "labels": ["Skip mouse highlight behavior."],
+    "type": "boolean",
+    "description": "Avoids default highlight and subsequent draws during mouse movement, useful if point selection logic is being implemented elsewhere."
+  },
   "xValueParser": {
     "default": "parseFloat() or Date.parse()*",
     "labels": ["CSV parsing"],

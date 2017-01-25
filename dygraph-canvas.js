@@ -432,11 +432,15 @@ DygraphCanvasRenderer.prototype._renderLineChart = function(opt_seriesName, opt_
   }
 
   var setPlotters = {};  // series name -> plotter fn.
+  var seenCustomPlotters = [];
   for (i = 0; i < setNames.length; i++) {
     setName = setNames[i];
     var setPlotter = this.dygraph_.getOption("plotter", setName);
-    if (setPlotter == plotter_attr) continue;  // not specialized.
-
+    if (setPlotter == plotter_attr || !setPlotter.singlePass) {
+      continue;
+    } else if (setPlotter.singlePass && seenCustomPlotters.indexOf(setPlotter) === -1) {
+      seenCustomPlotters.push(setPlotter);
+    }
     setPlotters[setName] = setPlotter;
   }
 
@@ -455,6 +459,11 @@ DygraphCanvasRenderer.prototype._renderLineChart = function(opt_seriesName, opt_
       if (setName in setPlotters) {
         if (is_last) {
           p = setPlotters[setName];
+          if(seenCustomPlotters.indexOf(p) !== -1) {
+            seenCustomPlotters.splice(seenCustomPlotters.indexOf(p),1);
+          } else {
+            continue;
+          }
         } else {
           // Don't use the standard plotters in this case.
           continue;
