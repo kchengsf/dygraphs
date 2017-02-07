@@ -3663,8 +3663,16 @@ Dygraph.prototype.visibility = function() {
     this.attrs_.visibility = [];
   }
   // TODO(danvk): it looks like this could go into an infinite loop w/ user_attrs.
-  while (this.getOption("visibility").length < this.numColumns() - 1) {
+  var optionVisibilityLength = this.getOption("visibility").length;
+  var newOptionVisibilityLength = this.getOption("visibility").length;
+  while (optionVisibilityLength < this.numColumns() - 1) {
     this.attrs_.visibility.push(true);
+    newOptionVisibilityLength = this.getOption("visibility").length;
+    if(optionVisibilityLength === newOptionVisibilityLength) {
+      console.error('Prevented infinite loop due to visibility user attrs!');
+      return this.getOption("visibility");
+    }
+    optionVisibilityLength = newOptionVisibilityLength;
   }
   return this.getOption("visibility");
 };

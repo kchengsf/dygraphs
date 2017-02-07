@@ -440,15 +440,18 @@ DygraphCanvasRenderer.prototype._renderLineChart = function(opt_seriesName, opt_
     //if its one of the default plotters do nothing
     if(setPlotter == plotter_attr) {
       continue;
-    } else if (!setPlotter.singlePass && seenMultiPassPlotters.indexOf(setPlotter) === -1) {
+    } else if (setPlotter.multiPass) {
       //if it draws 1 timeseries at a time, then add it to the known list to be added in the plotter array
-      seenMultiPassPlotters.push(setPlotter);
-      continue;
-    } else if (setPlotter.singlePass && seenSinglePassPlotters.indexOf(setPlotter) === -1) {
+      if(seenMultiPassPlotters.indexOf(setPlotter) === -1) {
+        seenMultiPassPlotters.push(setPlotter);
+      }
+    } else if (setPlotter.singlePass) {
       //if it draws all timeseries a time, then mark it down for rendering "last"
-      seenSinglePassPlotters.push(setPlotter);
+      if(seenSinglePassPlotters.indexOf(setPlotter) === -1) {
+        seenSinglePassPlotters.push(setPlotter);
+      }
+      setPlotters[setName] = setPlotter;
     }
-    setPlotters[setName] = setPlotter;
   }
 
   // add the single timeseries plotters to the list of plotters to iterate across all datasets and
